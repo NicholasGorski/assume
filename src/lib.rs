@@ -60,19 +60,19 @@ macro_rules! assume {
         $crate::__impl_assume!($cond, "")
     }};
     (unsafe: $cond:expr, $fmt:expr $(, $($args:tt)*)?) => {{
-        $crate::__impl_assume!($cond, concat!(": ", $fmt), $($($args)*)?)
+        $crate::__impl_assume!($cond, $crate::core::concat!(": ", $fmt), $($($args)*)?)
     }};
     (unsafe: @unreachable $(,)?) => {{
         $crate::__impl_assume!(@unreachable, "")
     }};
     (unsafe: @unreachable, $fmt:expr $(, $($args:tt)*)?) => {{
-        $crate::__impl_assume!(@unreachable, concat!(": ", $fmt), $($($args)*)?)
+        $crate::__impl_assume!(@unreachable, $crate::core::concat!(": ", $fmt), $($($args)*)?)
     }};
     (unsafe: $($_:tt)*) => {{
-        compile_error!("assumption must be an expression or @unreachable");
+        $crate::core::compile_error!("assumption must be an expression or @unreachable");
     }};
     ($($_:tt)*) => {{
-        compile_error!("assumption must be prefixed with 'unsafe: '");
+        $crate::core::compile_error!("assumption must be prefixed with 'unsafe: '");
     }};
 }
 
@@ -82,23 +82,71 @@ macro_rules! __impl_assume {
     ($cond:expr, $fmt:expr $(, $($args:tt)*)?) => {{
         unsafe {
             if !$cond {
-                if cfg!(debug_assertions) {
-                    panic!(concat!(
-                        "assumption failed: {}", $fmt), stringify!($cond), $($($args)*)?);
+                if $crate::core::cfg!(debug_assertions) {
+                    $crate::core::panic!($crate::core::concat!(
+                        "assumption failed: {}", $fmt), $crate::core::stringify!($cond), $($($args)*)?);
                 } else {
-                    core::hint::unreachable_unchecked()
+                    $crate::core::hint::unreachable_unchecked()
                 }
             }
         }
     }};
     (@unreachable, $fmt:expr $(, $($args:tt)*)?) => {{
         unsafe {
-            if cfg!(debug_assertions) {
-                panic!(concat!(
+            if $crate::core::cfg!(debug_assertions) {
+                $crate::core::panic!($crate::core::concat!(
                     "assumption failed: @unreachable", $fmt), $($($args)*)?);
             } else {
-                core::hint::unreachable_unchecked()
+                $crate::core::hint::unreachable_unchecked()
             }
         }
     }};
+}
+
+/// Used by macros
+#[doc(hidden)]
+pub extern crate core;
+
+#[cfg(test)]
+mod tests {
+    /// Rogue macro
+    #[allow(unused_macros)]
+    macro_rules! panic {
+        ($($tt:tt)*) => {
+            return
+        };
+    }
+
+    /// Rogue macro
+    #[allow(unused_macros)]
+    macro_rules! concat {
+        ($($tt:tt)*) => {
+            return
+        };
+    }
+
+    /// Rogue macro
+    #[allow(unused_macros)]
+    macro_rules! stringify {
+        ($($tt:tt)*) => {
+            return
+        };
+    }
+
+    /// Rogue macro
+    #[allow(unused_macros)]
+    macro_rules! cfg {
+        ($($tt:tt)*) => {
+            return
+        };
+    }
+
+    mod core {}
+
+    #[test]
+    #[should_panic]
+    #[cfg(debug_assertions)]
+    fn should_not_affected_by_call_site_environment() {
+        assume!(unsafe: @unreachable);
+    }
 }
