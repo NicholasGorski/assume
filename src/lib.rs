@@ -1,3 +1,5 @@
+#![no_std]
+
 /// Assumes that the given condition is true.
 ///
 /// This macro allows the expression of invariants in code. For example, one might `assume!` that
