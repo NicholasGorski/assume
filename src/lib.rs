@@ -48,6 +48,7 @@
 /// match v.pop() {
 ///     Some(value) => { /* ... */},
 ///     None => {
+///         // Path not tested for in release builds.
 ///         assume!(
 ///             unsafe: @unreachable,
 ///             "vec missing element"
@@ -62,19 +63,19 @@ macro_rules! assume {
         $crate::__impl_assume!($cond, "")
     }};
     (unsafe: $cond:expr, $fmt:expr $(, $($args:tt)*)?) => {{
-        $crate::__impl_assume!($cond, $crate::core::concat!(": ", $fmt), $($($args)*)?)
+        $crate::__impl_assume!($cond, $crate::private::concat!(": ", $fmt), $($($args)*)?)
     }};
     (unsafe: @unreachable $(,)?) => {{
         $crate::__impl_assume!(@unreachable, "")
     }};
     (unsafe: @unreachable, $fmt:expr $(, $($args:tt)*)?) => {{
-        $crate::__impl_assume!(@unreachable, $crate::core::concat!(": ", $fmt), $($($args)*)?)
+        $crate::__impl_assume!(@unreachable, $crate::private::concat!(": ", $fmt), $($($args)*)?)
     }};
     (unsafe: $($_:tt)*) => {{
-        $crate::core::compile_error!("assumption must be an expression or @unreachable");
+        $crate::private::compile_error!("assumption must be an expression or @unreachable");
     }};
     ($($_:tt)*) => {{
-        $crate::core::compile_error!("assumption must be prefixed with 'unsafe: '");
+        $crate::private::compile_error!("assumption must be prefixed with 'unsafe: '");
     }};
 }
 
@@ -84,30 +85,36 @@ macro_rules! __impl_assume {
     ($cond:expr, $fmt:expr $(, $($args:tt)*)?) => {{
         unsafe {
             if !$cond {
-                if $crate::core::cfg!(debug_assertions) {
-                    $crate::core::panic!($crate::core::concat!(
-                        "assumption failed: {}", $fmt), $crate::core::stringify!($cond), $($($args)*)?);
+                if $crate::private::cfg!(debug_assertions) {
+                    $crate::private::panic!($crate::private::concat!(
+                        "assumption failed: {}", $fmt),
+                        $crate::private::stringify!($cond), $($($args)*)?
+                    );
                 } else {
-                    $crate::core::hint::unreachable_unchecked()
+                    $crate::private::unreachable_unchecked()
                 }
             }
         }
     }};
     (@unreachable, $fmt:expr $(, $($args:tt)*)?) => {{
         unsafe {
-            if $crate::core::cfg!(debug_assertions) {
-                $crate::core::panic!($crate::core::concat!(
-                    "assumption failed: @unreachable", $fmt), $($($args)*)?);
+            if $crate::private::cfg!(debug_assertions) {
+                $crate::private::panic!($crate::private::concat!(
+                    "assumption failed: @unreachable", $fmt),
+                    $($($args)*)?
+                );
             } else {
-                $crate::core::hint::unreachable_unchecked()
+                $crate::private::unreachable_unchecked()
             }
         }
     }};
 }
 
-/// Used by macros
+/// Used by macros.
 #[doc(hidden)]
-pub extern crate core;
+pub mod private {
+    pub use core::{cfg, compile_error, concat, hint::unreachable_unchecked, panic, stringify};
+}
 
 #[cfg(test)]
 mod tests {
@@ -149,6 +156,27 @@ mod tests {
     #[should_panic]
     #[cfg(debug_assertions)]
     fn should_not_affected_by_call_site_environment() {
+        assume!(unsafe: 2 > 3);
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(debug_assertions)]
+    fn should_not_affected_by_call_site_environment_with_message() {
+        assume!(unsafe: 2 > 3, "{}", 3.14);
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(debug_assertions)]
+    fn should_not_affected_by_call_site_environment_unreachable() {
         assume!(unsafe: @unreachable);
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(debug_assertions)]
+    fn should_not_affected_by_call_site_environment_unreachable_with_message() {
+        assume!(unsafe: @unreachable, "{}", 3.14);
     }
 }
