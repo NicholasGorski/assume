@@ -3,15 +3,19 @@ assume
 
 A macro for stating unsafe assumptions in Rust.
 
-Using this macro, one can supply assumptions to the compiler for use in optimization. These assumptions are checked in `debug_assertion` configurations, and are unchecked otherwise.
+Using this macro, one can supply assumptions to the compiler for use in optimization. These assumptions are checked in `debug_assertion` configurations, and are unchecked (but still present) otherwise.
 
 This is an inherently unsafe operation. It lives in the space between regular `assert!` and pure `unsafe` accesses - it relies heavily on an optimizing compiler's ability to track unreachable paths to eliminate unnecessary asserts.
+
+```toml
+[dependencies]
+assume = "0.2"
+```
 
 ## Examples
 
 ```rust
-#[macro_use]
-extern crate assume;
+use assume::assume;
 
 let v = vec![1, 2, 3];
 
@@ -27,8 +31,7 @@ let element = v[i];  // Bounds check optimized out per assumption.
 ```
 
 ```rust
-#[macro_use]
-extern crate assume;
+use assume::assume;
 
 let items: HashMap<u32, String> = populate_items();
 
@@ -43,8 +46,7 @@ let item_zero = item_zero_opt.unwrap();  // Panic check optimized out per assump
 ```
 
 ```rust
-#[macro_use]
-extern crate assume;
+use assume::assume;
 
 enum Choices {
     This,
@@ -56,8 +58,8 @@ enum Choices {
 let choice = get_choice();
 
 match choice {
-    Choices::This => { ... },
-    Choices::That => { ... },
+    Choices::This => { /* ... */ },
+    Choices::That => { /* ... */ },
     Choices::Other => {
         // This case optimized out entirely, no panic emitted.
         assume!(
