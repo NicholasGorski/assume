@@ -95,7 +95,7 @@
 //!   This can result in warnings, or errors if e.g. different branches are computing some
 //!    specific value. Use `assume!(unsafe: @unreachable)` instead.
 //!
-#![doc(html_root_url = "https://docs.rs/assume/0.2.1")]
+#![doc(html_root_url = "https://docs.rs/assume/0.3.0")]
 #![no_std]
 
 /// Assumes that the given condition is true.

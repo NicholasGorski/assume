@@ -9,7 +9,7 @@ This is an inherently unsafe operation. It lives in the space between regular `a
 
 ```toml
 [dependencies]
-assume = "0.2"
+assume = "0.3"
 ```
 
 ## Examples

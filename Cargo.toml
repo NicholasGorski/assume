@@ -1,6 +1,6 @@
 [package]
 name = "assume"
-version = "0.2.1" # Also update #![doc] and README.
+version = "0.3.0" # Also update #![doc] and README.
 
 authors = ["Nicholas Gorski"]
 license = "MIT OR Apache-2.0"
