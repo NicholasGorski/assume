@@ -202,7 +202,8 @@ macro_rules! assume {
 #[doc(hidden)]
 macro_rules! __assume_impl {
     ($cond:expr, $fmt:expr $(, $($args:tt)*)?) => {{
-        if !$cond {
+        #[allow(unused_unsafe)]
+        if unsafe { !$cond } {
             $crate::__assume_impl!(
                 @unreachable, $crate::__private::stringify!($cond), $fmt, $($($args)*)?)
         }
@@ -269,6 +270,12 @@ mod tests {
     }
 
     mod core {}
+
+    #[test]
+    fn conditional_can_be_unsafe() {
+        let values = [1, 2, 3];
+        assume!(unsafe: *values.get_unchecked(0) > 0);
+    }
 
     #[test]
     #[should_panic(expected = "assumption failed: 2 > 3")]
