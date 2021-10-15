@@ -9,7 +9,7 @@ This is an inherently unsafe operation. It lives in the space between regular `a
 
 ```toml
 [dependencies]
-assume = "0.3"
+assume = "0.4"
 ```
 
 ## Examples
@@ -84,24 +84,32 @@ pub struct ValuesWithEvens {
 
 impl ValuesWithEvens {
     pub fn new(values: Vec<u32>) -> Self {
+        // Determine the indices of even values.
         let evens = values
             .iter()
             .enumerate()
-            .filter_map(|(index, value)| if value % 2 == 0 { Some(index) } else { None })
+            .filter_map(
+                |(index, value)| {
+                    if value % 2 == 0 {
+                        Some(index)
+                    } else {
+                        None
+                    }
+                }
+            )
             .collect();
 
         Self { values, evens }
     }
 
     pub fn pop_even(&mut self) -> Option<u32> {
-        if let Some(index) = self.evens.pop() {
-            // We know this index is valid, but a bounds check is performed anyway.
-            let value = self.values[index];
+        let index = self.evens.pop()?;
 
-            Some(value)
-        } else {
-            None
-        }
+        // We know this index is valid by construction,
+        // but a bounds check is performed anyway.
+        let value = self.values[index];
+
+        Some(value)
     }
 }
 
@@ -119,19 +127,17 @@ By construction, indices contained within `evens` are always valid indices into 
 let value = self.values[index];
 ```
 
-This ensures a bug in the program does not result in an out of bounds access. (For example, if another method were introduced that modified `values` it could invalidate the indices - this would not result in undefined behavior thanks to bounds checking.)
+This ensures a bug in the program does not result in an out of bounds access. (For example, if another method were introduced that modified `values` but forgot to update `evens`, it could invalidate the indices - this would not result in undefined behavior thanks to bounds checking.)
 
 However, if this is a hot-spot in the program we may want to remove this check. Sometimes this trade-off is necessary to achieve performance requirements. Rust offers `unsafe` access:
 
 ```rust
     pub fn pop_even(&mut self) -> Option<u32> {
-        if let Some(index) = self.evens.pop() {
-            let value = unsafe { *self.values.get_unchecked(index) };
+        let index = self.evens.pop()?;
 
-            Some(value)
-        } else {
-            None
-        }
+        let value = unsafe { *self.values.get_unchecked(index) };
+
+        Some(value)
     }
 ```
 
@@ -139,14 +145,12 @@ As expected this has no bounds check, but other than the `unsafe` keyword we've 
 
 ```rust
     pub fn pop_even(&mut self) -> Option<u32> {
-        if let Some(index) = self.evens.pop() {
-            debug_assert!(index < self.evens.len());
-            let value = unsafe { *self.values.get_unchecked(index) };
+        let index = self.evens.pop()?;
 
-            Some(value)
-        } else {
-            None
-        }
+        debug_assert!(index < self.evens.len());
+        let value = unsafe { *self.values.get_unchecked(index) };
+
+        Some(value)
     }
 ```
 
@@ -165,18 +169,16 @@ Using the `assume!` macro looks like:
 
 ```rust
     pub fn pop_even(&mut self) -> Option<u32> {
-        if let Some(index) = self.evens.pop() {
-            assume!(
-                unsafe: index < self.evens.len(),
-                "even index {} beyond values vec",
-                index
-            );
-            let value = self.values[index];
+        let index = self.evens.pop()?;
 
-            Some(value)
-        } else {
-            None
-        }
+        assume!(
+            unsafe: index < self.evens.len(),
+            "even index {} beyond values vec",
+            index
+        );
+        let value = self.values[index];
+
+        Some(value)
     }
 ```
 
@@ -207,7 +209,7 @@ This is not a beginner-friendly macro; you are expected to be able to view disas
 
 ## Gotchas
 
-- Unlike `debug_assert!` et. al., the condition of an `assume!` is always present. Complicated assumptions involving function calls and side effects are unlikely to be unhelpful in any case, but be aware they will run (unless the compiler can prove it is not needed). The assumed expression ought to be trivial and involve only the immediately available facts to guarantee this.
+- Unlike `debug_assert!` et. al., the condition of an `assume!` is always present. Complicated assumptions involving function calls and side effects are unlikely to be helpful in any case, but be aware they will run (unless the compiler can prove it is not needed). The assumed expression ought to be trivial and involve only the immediately available facts to guarantee this.
 
 - As stated, this relies on the optimizer to propagate the asumption. Differences in optimization level or mood of the compiler may cause it to fail to elide assertions in the final output. You are expected to benchmark and analyze the output yourself. If you simply *must* have no checking and do not want to rely on optimizations, then a `debug_assert!` + `unchecked` access is the way to go.
 

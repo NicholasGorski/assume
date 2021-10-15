@@ -95,7 +95,7 @@
 //!   This can result in warnings, or errors if e.g. different branches are computing some
 //!    specific value. Use `assume!(unsafe: @unreachable)` instead.
 //!
-#![doc(html_root_url = "https://docs.rs/assume/0.3.0")]
+#![doc(html_root_url = "https://docs.rs/assume/0.4.0")]
 #![no_std]
 
 /// Assumes that the given condition is true.
@@ -209,8 +209,7 @@ macro_rules! __assume_impl {
         }
     }};
     (@unreachable, $what:expr, $sep:expr, $fmt:expr $(, $($args:tt)*)?) => {{
-        #[cfg(debug_assertions)]
-        {
+        if $crate::__private::cfg!(debug_assertions) {
             // We could put $what and $sep into concat!, as they are strings,
             // but this generates erroneous rust analyzer errors:
             //     https://github.com/rust-analyzer/rust-analyzer/issues/10300
@@ -220,11 +219,10 @@ macro_rules! __assume_impl {
                 $sep,
                 $($($args)*)?
             );
-        }
-
-        #[cfg(not(debug_assertions))]
-        unsafe {
-            $crate::__private::unreachable_unchecked()
+        } else {
+            unsafe {
+                $crate::__private::unreachable_unchecked()
+            }
         }
     }};
 }
@@ -232,7 +230,7 @@ macro_rules! __assume_impl {
 /// Used by macros.
 #[doc(hidden)]
 pub mod __private {
-    pub use core::{compile_error, concat, hint::unreachable_unchecked, panic, stringify};
+    pub use core::{cfg, compile_error, concat, hint::unreachable_unchecked, panic, stringify};
 }
 
 #[cfg(test)]
@@ -275,6 +273,14 @@ mod tests {
     fn conditional_can_be_unsafe() {
         let values = [1, 2, 3];
         assume!(unsafe: *values.get_unchecked(0) > 0);
+    }
+
+    #[test]
+    fn no_unused_formatter_args_warnings() {
+        // We can't actually write a test for this, but this test
+        // will produce the warning if this suppression is broken.
+        let unused = 0;
+        assume!(unsafe: true, "this is unused: {}", unused);
     }
 
     #[test]
