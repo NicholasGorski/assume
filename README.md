@@ -24,8 +24,9 @@ let i = get_index();
 
 assume!(
     unsafe: i < v.len(),
-    "index {} is beyond vec length",
+    "index {} is beyond vec length {}",
     i,
+    v.len(),
 );
 let element = v[i];  // Bounds check optimized out per assumption.
 ```
@@ -70,21 +71,48 @@ match choice {
 }
 ```
 
+```rust
+use assume::assume;
+
+#[inline(always)]
+fn compute_value() -> usize {
+    let result = compute_value_internal();
+
+    // Can also be used to provide hints to the caller,
+    // after the optimizer inlines this assumption.
+    assume!(
+        unsafe: result < 12,
+        "result is invalid: {}",
+        result,
+    );
+    result
+}
+
+fn compute_value_internal() -> usize {
+    /* ... */
+}
+
+fn process_data(data: &[f64; 100]) {
+    // Bounds check elided per implementation's assumption.
+    let value = data[compute_value()];
+}
+
+```
+
 ## Motivation
 
-Often, programs have invariants that are not or cannot be expressed in the type system. Rust is safe by default, and asserts are made as needed to ensure this.
+Programs often have invariants that cannot be expressed in the type system. Rust is safe by default, and in such cases asserts are made at runtime to verify these invariants. A common example of this is bounds checking for slices.
 
 Consider the following (somewhat convoluted) example:
 
 ```rust
 pub struct ValuesWithEvens {
-    values: Vec<u32>,
-    evens: Vec<usize>,
+    values: Vec<u32>,  // Some integers.
+    evens: Vec<usize>, // Indices of even integers in `values`.
 }
 
 impl ValuesWithEvens {
     pub fn new(values: Vec<u32>) -> Self {
-        // Determine the indices of even values.
         let evens = values
             .iter()
             .enumerate()
@@ -116,20 +144,19 @@ impl ValuesWithEvens {
 fn main() {
     let mut vwe = ValuesWithEvens::new(vec![1, 2, 3, 4]);
 
-    let last_even = vwe.pop_even().unwrap();
-    println!("{}", last_even);
+    println!("{:?}", vwe.pop_even());
 }
 ```
 
-By construction, indices contained within `evens` are always valid indices into `values`. However, as written there is a bounds check on the line:
+By construction, indices contained within `evens` are always valid indices into `values`. However, this cannot be expressed in the type system and there is a bounds check on the line:
 
 ```rust
 let value = self.values[index];
 ```
 
-This ensures a bug in the program does not result in an out of bounds access. (For example, if another method were introduced that modified `values` but forgot to update `evens`, it could invalidate the indices - this would not result in undefined behavior thanks to bounds checking.)
+This ensures a bug in the program does not result in an out of bounds access. For example, if another method were introduced that modified `values` but forgot to update `evens`, it could invalidate the indices - this would not result in undefined behavior thanks to bounds checking.
 
-However, if this is a hot-spot in the program we may want to remove this check. Sometimes this trade-off is necessary to achieve performance requirements. Rust offers `unsafe` access:
+However, if this is a hot-spot in the program we may need to remove this check. Rust offers `unsafe` access:
 
 ```rust
     pub fn pop_even(&mut self) -> Option<u32> {
@@ -141,7 +168,7 @@ However, if this is a hot-spot in the program we may want to remove this check. 
     }
 ```
 
-As expected this has no bounds check, but other than the `unsafe` keyword we've removed any scrutiny around the access. We can improve this by including a debug-only assertion that the index really is okay:
+This has no bounds check, but we've removed any scrutiny around the access. We can improve this with a debug-only assertion:
 
 ```rust
     pub fn pop_even(&mut self) -> Option<u32> {
@@ -161,20 +188,19 @@ debug_assert!(index < self.values.len());
 //                         ^^^^^^
 ```
 
-The decoupling of assertion to optimization is unwieldy and error-prone.
+The decoupling of assertion to optimization is error-prone.
 
-The `assume!` macro relies on the optimizer's ability to validate and use stated assumptions - an incorrect assumption will have no effect and the bounds check will remain in the program.
-
-Using the `assume!` macro looks like:
+The `assume!` macro relies on the optimizer's ability to leverage stated assumptions. An incorrect assumption leaves the bounds check alone, but a correct assumption removes it:
 
 ```rust
     pub fn pop_even(&mut self) -> Option<u32> {
         let index = self.evens.pop()?;
 
         assume!(
-            unsafe: index < self.evens.len(),
-            "even index {} beyond values vec",
-            index
+            unsafe: index < self.values.len(),
+            "even index {} beyond values vec length {}",
+            index,
+            self.values.len(),
         );
         let value = self.values[index];
 
@@ -182,9 +208,46 @@ Using the `assume!` macro looks like:
     }
 ```
 
-Now the optimizer is aware of what we believe to be true, and is checking that this expression implies the optimization we want. In this case it does, so the bounds check is removed. Furthermore, this will assert our condition holds in `debug_assertion` configurations (such as in tests).
+The optimizer considers the bounds check dead code per the assumption, so it is removed. Furthermore, this will assert our condition holds in `debug_assertion` configurations such as in tests.
 
-Best of all, the code we actually want to write remains untouched and easy to read.
+Assumptions can also be provided to the caller's context by the implementation:
+
+```rust
+    #[inline(always)]
+    pub fn pop_even(&mut self) -> Option<u32> {
+        let value = self.pop_even_internal()?;
+
+        assume!(
+            unsafe: value % 2 == 0,
+            "popped value {} is not even",
+            value,
+        );
+        value
+    }
+
+    fn pop_even_internal(&mut self) -> Option<u32> {
+        /* ... */
+    }
+```
+
+The caller now receives optimizations "for free". For example:
+
+```rust
+fn compute_something(vwe: &mut ValuesWithEvens) -> Option<f64> {
+    let value = vwe.pop_even()?;
+
+    perform_common_task(value)
+}
+
+fn perform_common_task(value: u32) -> Option<f64> {
+    if value % 2 == 0 {
+        /* ... */
+    } else {
+        // This branch is now considered dead code when the
+        // function is called from the `compute_something` path.
+    }
+}
+```
 
 ## When not to use
 
@@ -198,22 +261,21 @@ Rely on `unreachable!` to state that some code path should never be taken.
 
 Okay - once you:
 
-- Have a reliable method for measuring your performance.
 - Have profiling results indicating some invariant check is causing overhead.
 - Have no way of re-arranging the program to express this without overhead.
 - Are about to reach for an `unsafe` get operation.
 
-Then you should consider `assume!` instead. This is more terse, leaves your safe code untouched, asserts in debug builds, and ensures runtime checks are removed only if they are implied by the assumption.
+Then you should consider `assume!` instead.
 
-This is not a beginner-friendly macro; you are expected to be able to view disassembly and verify the desired optimizations are taking place. You are also expected to have a suite of tests that build with `debug_assertion` enabled in order to catch violations of the invariant.
+This is not a beginner-friendly macro; you must verify the desired optimizations are taking place. You should also have a suite of tests that build with `debug_assertion` enabled in order to catch violations of the invariant.
 
 ## Gotchas
 
-- Unlike `debug_assert!` et. al., the condition of an `assume!` is always present. Complicated assumptions involving function calls and side effects are unlikely to be helpful in any case, but be aware they will run (unless the compiler can prove it is not needed). The assumed expression ought to be trivial and involve only the immediately available facts to guarantee this.
+- Unlike `debug_assert!` et. al., the condition of an `assume!` is always present - it's the panic that is removed. Complicated assumptions involving function calls and side effects are unlikely to be helpful; the condition ought to be trivial and involve only immediately available facts.
 
-- As stated, this relies on the optimizer to propagate the asumption. Differences in optimization level or mood of the compiler may cause it to fail to elide assertions in the final output. You are expected to benchmark and analyze the output yourself. If you simply *must* have no checking and do not want to rely on optimizations, then a `debug_assert!` + `unchecked` access is the way to go.
+- As stated, this relies on the optimizer to propagate the assumption. Differences in optimization level or mood of the compiler may cause it to fail to elide assertions in the final output. If you simply *must* have no checking and do not want to rely on optimizations, then a `debug_assert!` + `unsafe` access is the way to go.
 
-- Avoid using `assume!(unsafe: false)` to indicate unreachable code. Although this works, the return type is `()` and not `!`, so the unreachability is not expressed to the compiler. This can result in warnings, or errors if e.g. different branches are computing some specific value. Use `assume!(unsafe: @unreachable)` instead.
+- Avoid using `assume!(unsafe: false)` to indicate unreachable code. Although this works, the return type is `()` and not `!`. This can result in warnings or errors if e.g. other branches evaluate to a type other than `()`. Use `assume!(unsafe: @unreachable)` instead.
 
 ## See Also
 
