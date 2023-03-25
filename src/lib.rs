@@ -143,16 +143,22 @@
 #[macro_export]
 macro_rules! assume {
     (unsafe: $cond:expr $(,)?) => {{
-        $crate::__assume_impl!($cond, "", "")
+        $crate::__assume_impl!(
+            $cond,
+            $crate::__private::concat!(
+                "assumption failed: ",
+                $crate::__private::stringify!($cond)
+            )
+        )
     }};
     (unsafe: $cond:expr, $fmt:expr $(, $($args:tt)*)?) => {{
-        $crate::__assume_impl!($cond, ": ", $fmt, $($($args)*)?)
+        $crate::__assume_impl!($cond, $fmt, $($($args)*)?)
     }};
     (unsafe: @unreachable $(,)?) => {{
-        $crate::__assume_impl!(@unreachable, "unreachable", "", "")
+        $crate::__assume_impl!(@unreachable, "assumption failed: unreachable")
     }};
     (unsafe: @unreachable, $fmt:expr $(, $($args:tt)*)?) => {{
-        $crate::__assume_impl!(@unreachable, "unreachable", ": ", $fmt, $($($args)*)?)
+        $crate::__assume_impl!(@unreachable, $fmt, $($($args)*)?)
     }};
     (unsafe: $($_:tt)*) => {{
         $crate::__private::compile_error!("assumption must be an expression or @unreachable");
@@ -168,21 +174,18 @@ macro_rules! __assume_impl {
     ($cond:expr, $fmt:expr $(, $($args:tt)*)?) => {{
         #[allow(unused_unsafe)]
         if unsafe { !$cond } {
-            $crate::__assume_impl!(
-                @unreachable, $crate::__private::stringify!($cond), $fmt, $($($args)*)?)
+            $crate::__assume_impl!(@unreachable, $fmt, $($($args)*)?)
         }
     }};
-    (@unreachable, $what:expr, $sep:expr, $fmt:expr $(, $($args:tt)*)?) => {{
+    (@unreachable, $fmt:expr $(, $($args:tt)*)?) => {{
         if $crate::__private::cfg!(debug_assertions) {
-            // We could put $what and $sep into concat!, as they are strings,
-            // but this generates erroneous rust analyzer errors:
-            //     https://github.com/rust-analyzer/rust-analyzer/issues/10300
-            $crate::__private::panic!($crate::__private::concat!(
-                "assumption failed: {}{}", $fmt),
-                $what,
-                $sep,
-                $($($args)*)?
-            );
+            // Panic cannot accept non-const format strings, which means we cannot
+            // arbitrarily augment this message with more detail. Instead, we behave
+            // like assert!: the default message is the code, but a provided format
+            // string replaces this entirely if provided.
+            //
+            // This makes assume! as const as panic!/assert!.
+            $crate::__private::panic!($fmt, $($($args)*)?);
         } else {
             unsafe {
                 $crate::__private::unreachable_unchecked()
@@ -201,7 +204,7 @@ pub mod __private {
 mod tests {
     /// Rogue macro.
     #[allow(unused_macros)]
-    macro_rules! panic {
+    macro_rules! cfg {
         ($($tt:tt)*) => {
             return
         };
@@ -217,7 +220,7 @@ mod tests {
 
     /// Rogue macro.
     #[allow(unused_macros)]
-    macro_rules! stringify {
+    macro_rules! panic {
         ($($tt:tt)*) => {
             return
         };
@@ -225,18 +228,24 @@ mod tests {
 
     /// Rogue macro.
     #[allow(unused_macros)]
-    macro_rules! cfg {
+    macro_rules! stringify {
         ($($tt:tt)*) => {
             return
         };
     }
 
+    // Rogue core module.
     mod core {}
 
     #[test]
     fn conditional_can_be_unsafe() {
         let values = [1, 2, 3];
         assume!(unsafe: *values.get_unchecked(0) > 0);
+    }
+
+    #[test]
+    const fn fn_can_be_const() {
+        assume!(unsafe: 1 > 0, "impossible");
     }
 
     #[test]
@@ -255,14 +264,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "assumption failed: 2 > 3: oh no")]
+    #[should_panic(expected = "oh no")]
     #[cfg(debug_assertions)]
     fn is_not_affected_by_call_site_environment_with_message() {
         assume!(unsafe: 2 > 3, "oh no");
     }
 
     #[test]
-    #[should_panic(expected = "assumption failed: 2 > 3: oh no, a problem")]
+    #[should_panic(expected = "oh no, a problem")]
     #[cfg(debug_assertions)]
     fn is_not_affected_by_call_site_environment_with_format() {
         assume!(unsafe: 2 > 3, "oh no, a {}", "problem");
@@ -276,14 +285,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "assumption failed: unreachable: oh no")]
+    #[should_panic(expected = "oh no")]
     #[cfg(debug_assertions)]
     fn is_not_affected_by_call_site_environment_unreachable_with_message() {
         assume!(unsafe: @unreachable, "oh no");
     }
 
     #[test]
-    #[should_panic(expected = "assumption failed: unreachable: oh no, a problem")]
+    #[should_panic(expected = "oh no, a problem")]
     #[cfg(debug_assertions)]
     fn is_not_affected_by_call_site_environment_unreachable_with_format() {
         assume!(unsafe: @unreachable, "oh no, a {}", "problem");
