@@ -122,7 +122,7 @@
 //!   the return type is `()` and not `!`. This can result in warnings or errors if e.g. other
 //!   branches evaluate to a type other than `()`. Use `assume!(unsafe: @unreachable)` instead.
 //!
-#![doc(html_root_url = "https://docs.rs/assume/0.4.0")]
+#![doc(html_root_url = "https://docs.rs/assume/0.5.0")]
 #![no_std]
 
 /// Assumes that the given condition is true.
